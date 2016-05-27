@@ -1,0 +1,20 @@
+<head>
+<style>
+body { font-family: 'Helvetica', 'Arial', sans-serif; }
+</style>
+</head>
+
+<h1>Movies</h1>
+{% for movie in movies %}
+  <li><a href="http://www.imdb.com/title/{{ movie.imdb }}">{{ movie.title }}, {{ movie.year }}</a></li>
+{% else %}
+  <li>No movies found.</li>
+{% endfor %}
+
+<h1>New Movie</h1>
+<form method="POST" action="/">
+		Title: <input type="text" id="title" name="title" /><br />
+		Year: <input type="number" id="year" name="year" /><br />
+    Imdb Id: <input type="text" id="imdb_id" name="imdb_id" /><br />
+		<input type="submit" value="Submit" />
+</form>

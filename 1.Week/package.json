@@ -1,0 +1,15 @@
+{
+    "name": "all_together_now",
+    "version": "0.1.0",
+    "description": "Using the MongoDB driver together with route handling and templates",
+    "main": "app.js",
+    "dependencies": {
+        "consolidate": "~0.13.1",
+        "express": "~4.13.3",
+        "mongodb": "~2.1.3",
+        "nunjucks": "~2.2.0",
+        "body-parser": "~1.14.2"
+    },
+    "author": "Shannon Bradshaw",
+    "license": "0BSD"
+}
