@@ -881,7 +881,7 @@ Be careful with the order, here if `limit` goes before than `skip` the result wi
 ##Expressions
 [Expressions reference](https://docs.mongodb.com/manual/meta/aggregation-quick-reference/#expressions)
 
-##Promoting Nested fields
+##Reshaping. Promoting Nested fields
 ```javascript
 
 	db.companies.aggregate([
@@ -896,6 +896,8 @@ Be careful with the order, here if `limit` goes before than `skip` the result wi
 	]).pretty()
 
 ```
+
+Create our own objects
 ```javascript
 
 	db.companies.aggregate([
@@ -1077,4 +1079,306 @@ $max, $min, $avg, $first...
 
 
 ```
+Set a proper `_id`
+
+Ex1:
+```javascript
+
+	db.companies.aggregate([
+	    { $match: { "relationships.person": { $ne: null } } },
+	    { $project: { name: 1, relationships: 1, _id: 0 } },
+	    { $unwind: "$relationships" }, {
+	        $group: {
+	            _id: "$relationships.person.permalink",
+	            company: { $addToSet: "$name" }
+	        }
+	    },
+	    { $unwind: "$company" }, {
+	        $group: {
+	            _id: "$_id",
+	            count: { $sum: 1 }
+	        }
+	    },
+	    { $sort: { count: -1 } }
+	]);
+```
+Ex2
+```javascript
+
+	db.grades.aggregate([
+	    { $project: { "class_id": 1, "student_id": 1, "scores.type": 1, "scores.score": 1, _id: 0 } },
+	    { $unwind: "$scores" },
+	    { $match: { "scores.type": { $ne: "quiz" } } }, {
+	        $group: {
+	            _id: "$class_id",
+	            stdDev: { $stdDevPop: "$scores.score" }
+	        }
+	    }
+	]);
+
+```
+Why the result is differnt if we dont have `"student_id": 1` in the project stage?
+
+Ex3
+```javascript
+	
+	db.companies.aggregate([
+	    { $match: { founded_year: 2004 } }, {
+	        $project: {
+	            _id: 1,
+	            name: 1,
+
+	            rounds: { $size: "$funding_rounds" },
+	            founded_year: 1,
+	            "funding_rounds.raised_amount": 1
+	        }
+	    },
+	    { $match: { rounds: { $gte: 5 } } },
+	    { $unwind: "$funding_rounds" }, {
+	        $group: {
+	            _id: "$name",
+	            stdDev: { $sum: "$funding_rounds.raised_amount" }
+	        }
+	    },
+	    { $sort: { stdDev: 1 } }
+	])
+```
+#7. APPLICATION ENGINEERING
+##Write Concern 
+*Journal* part on memory where documents are stored before writing them to disk.   
+`w = 1` wait to respond of the write. 
+`j = false` wait for the journal to write on disk.
+
+| w | j     |                                             | 									|
+|---|-------|---------------------------------------------|-------------------------------------|
+| 1 | false | wait for the server but not for the journal | Fast, Small window of vulnerability	|
+| 1 | true  | Wait until is write directly in the disk    | Slow 								|
+| 0 | 	    | Unacknowledged write                        | Don't 								|
+
+##Network Errors 
+What if we can not see the response?
+
+* *Insert*: Just try again until is done
+* *Update*: problem in cases like in `$inc`. In the case of the need of to avoid this error use inserts instead.
+
+##Introduction to Replication 
+* Availability
+* Fault Tolerance
+
+####Replica Set
+Nodes  
+Primary and secondaries   
+Writes only in primaries  
+Minimun number of nodes in a Replica set is 3  
+If primary is down, there is an `election` in which of the secondaries is the new primary.
+
+##Replica Set Elections 
+Type of nodes: 
+
+* Regular
+* Arbiter: for voting purposes. No data on it.
+* Delayed: for back ups. `Priority = 0` can not be primary
+* Hidden: Can not be primary. `Priority= 0`
+
+##Write Consistency 
+* Writes goes to the primary  
+* Reads can go to secondaries, but there are options that the info is not updated.  
+* *Replication is asynchronous*  
+* Use for read scaling.  
+
+
+##Creating Replica Set
+```
+	
+	#!/usr/bin/env bash
+	mkdir -p /data/rs1 /data/rs2 /data/rs3
+	mongod --replSet m101 --logpath "1.log" --dbpath /data/rs1 --port 27017 --oplogSize 64 --fork --smallfiles
+	mongod --replSet m101 --logpath "2.log" --dbpath /data/rs2 --port 27018 --oplogSize 64 --smallfiles --fork
+	mongod --replSet m101 --logpath "3.log" --dbpath /data/rs3 --port 27019 --oplogSize 64 --smallfiles --fork
+```
+
+*Configuration*
+```javascript
+	
+	config = { _id: "m101", members:[
+          { _id : 0, host : "localhost:27017" priority:0, slaveDelay:5 },
+          { _id : 1, host : "localhost:27018"},
+          { _id : 2, host : "localhost:27019"} ]
+	};
+
+	rs.initiate(config);
+	rs.status();
+
+```
+
+Can not read in a secondary by default
+`rs.slaveOk()`
+
+##Replica Set Internals 
+* _oplog_ is the operations log. Inserts, updates...  
+* _oplog_ is in sync.  
+* Secondaries are constantly reading the primary _oplog_
+
+Command to see which mongo servers are we running  
+`ps -ef | grep mongod`
+
+In the server in the local database `use local`  there is a _oplog.rs_ collection  
+
+```javascript
+
+	m101:PRIMARY> db.oplog.rs.find().pretty()
+	...
+	{
+		"ts" : Timestamp(1467796049, 1),
+		"t" : NumberLong(1),
+		"h" : NumberLong("-2180104970022902937"),
+		"v" : 2,
+		"op" : "c",
+		"ns" : "test.$cmd",
+		"o" : {
+			"create" : "people"
+		}
+	}
+	{
+		"ts" : Timestamp(1467796049, 2),
+		"t" : NumberLong(1),
+		"h" : NumberLong("7319531361958625272"),
+		"v" : 2,
+		"op" : "i",
+		"ns" : "test.people",
+		"o" : {
+			"_id" : ObjectId("577cca5151c935c6195553ad"),
+			"name" : "Hugo"
+		}
+	}
+
+```
+
+`rs.status()` Give us the `optime`
+
+```javascript
+
+		{
+			"_id" : 0,
+			"name" : "localhost:27017",
+			"health" : 1,
+			"state" : 2,
+			"stateStr" : "SECONDARY",
+			"uptime" : 1088,
+			"optime" : { 			//<-- when was the last update
+				"ts" : Timestamp(1467796049, 2),
+				"t" : NumberLong(1)
+			},
+			"optimeDate" : ISODate("2016-07-06T09:07:29Z"),
+			"lastHeartbeat" : ISODate("2016-07-06T09:12:47.037Z"),
+			"lastHeartbeatRecv" : ISODate("2016-07-06T09:12:47.683Z"),
+			"pingMs" : NumberLong(0),
+			"syncingTo" : "localhost:27018", //<-- where the info comes from
+			"configVersion" : 1
+		},
+
+```
+_oplog_ is a capped collection. It is going to roll off after a certain amount of time. 
+Have a big enough _oplog_ when the secondary can not see the primary.
+Depens on how fast the it is growing 
+
+##Failover and Rollback 
+If the primary stops and when it comes back up sees that he has writes that are not in the 'new' primary, these writes are rolled back and saved in a file in case a we want to manually add them.
+
+##Connecting to a Replica Set from the Node.js Driver 
+If you leave a replica set node out of the seedlist within the driver, the missing node will be discovered as long as you list at least one valid node.
+
+```javascript
+
+	var MongoClient = require('mongodb').MongoClient;
+
+	MongoClient.connect("mongodb://localhost:30001,localhost:30002,localhost:30003/course", function(err, db) {
+	    if (err) throw err;
+
+	    db.collection("repl").insert({ 'x' : 1 }, function(err, doc) {
+	        if (err) throw err;
+
+	        db.collection("repl").findOne({ 'x' : 1 }, function(err, doc) {
+	            if (err) throw err;
+
+	            console.log(doc);
+	            db.close();
+	        });
+	    });
+	});
+
+```
+
+##Failover in the Node.js Driver 
+
+If a insert happens during a primary election, the insert will be buffered until the election completes, then the callback will be called after the operation is sent and a response is received.
+
+##Write Concern Revisited 
+
+| w 		| j     |                                             | 									|
+|-----------|-------|---------------------------------------------|-------------------------------------|
+| 1 		| false | wait for the server but not for the journal | Fast, Small window of vulnerability	|
+| 1 		| true  | Wait until is write directly in the disk    | Slow 								|
+| 0			| 	    | Unacknowledged write                        | Don't 								|
+| X 		| false |Wait until X nodes are acknowledge the write | Slow 								|
+| majority 	| 	    |Wait for the majority of Nodes               | will (in most cases) avoid rollbacks|
+	
+
+**wtimeout** How long you wait	
+
+`j` only wait for writing in the primary node.
+
+```javascript
+
+	pymongo.MongoClient(host="mongodb://localhost:27017",
+                        replicaSet="rs1",
+                        w=3, wtimeout=10000, j=True, 
+                        read_preference=read_pref)
+```
+
+##Read Preferences 
+Read and writes go to the primary.
+
+* Primary
+* Primary Preferred
+* Secondary   
+* Secondary Preferred  
+* Nearest
+
+When reading from secondaries we get _Eventually consistent reads_
+##Review of Implications of Replication 
+* Seed Lists
+* Write Concern: w,j, wtimeout
+* Read Preferences
+* Errors can happen
+
+##Introduction to Sharding 
+Use for scalability.  
+Shards typically are replica sets.   
+`mongos` handle the shards.
+Shard contain chunks (bunch of documents) sort in some way (`shard_key`), any access to the database is done in its own shard. `mongos` know depending in the `shard_key` to whom send the request.
+To work with shards we will work with `mongos` instead of `mongod`.  `mongod` is used to work with replica sets but not with shards.
+
+##Building a Sharded Environment 
+
+How to separate documents into shards: 
+
+* Range based: documents from 1..100 to s1
+* Hash based: using an key that match a document to a shard. 
+	* Does not need to be unique.
+	* Every document must have a `shard_key`
+
+## Implications of Sharding 
+ * Every doc includes the `shard_key`	
+ * `shard_key` is immutable
+ * Is needed an index that starts with the `shard_key`	(could be multi index)
+ * On updates `shard_keys` must be specified
+ * No `shard_key` -> scatter gather operation (expensive)
+ * You can not have a unique key unless is part of the `shard_key`.
+
+##Sharding + Replication 
+Drivers -\()/-
+##Choosing a Shard Key 
+* Sufficient cardinality (enough values)
+* Hotspotting writes: Write everything in the same place. Like using time creation values.
 

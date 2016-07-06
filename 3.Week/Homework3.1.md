@@ -8,4 +8,4 @@ _When using find() in the Node.js driver, which of the following best describes 
 * When find() is called
 * When a cursor's limit() method is called
 * When a cursor's skip() method is called
-* When we call a cursor method passing a callback function to process query results :correct:
+* YES: When we call a cursor method passing a callback function to process query results :correct:
