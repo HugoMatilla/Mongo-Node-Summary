@@ -702,7 +702,7 @@ Teacher
 Find all teachers from a Student. Direct.
 Find all students from a teacher. Use a Multikey index.
 Add index   
-`db.students.ensureIdex({'trachers:1'})`
+`db.students.ensureIdex({'teachers:1'})`
 Find    
 `db.students.find({'teachers':{$all:[0,1]}}).explain` teachers whose `id` is 0 and 1
 
@@ -1377,7 +1377,7 @@ How to separate documents into shards:
  * You can not have a unique key unless is part of the `shard_key`.
 
 ##Sharding + Replication 
-Drivers -\()/-
+Drivers ¯\_(ツ)_/¯
 ##Choosing a Shard Key 
 * Sufficient cardinality (enough values)
 * Hotspotting writes: Write everything in the same place. Like using time creation values.
